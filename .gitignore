@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+
+venv/
+.venv/
+
+ecole.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+.vscode/
+.idea/
