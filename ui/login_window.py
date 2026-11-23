@@ -3,7 +3,7 @@ ui/login_window.py
 Écran de connexion : logo centré, champs identifiant/mot de passe, bouton doré.
 """
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPixmap
