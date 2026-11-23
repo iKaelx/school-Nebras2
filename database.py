@@ -90,15 +90,6 @@ CREATE TABLE IF NOT EXISTS payments (
     FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS absences (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER NOT NULL,
-    date TEXT NOT NULL,
-    justified INTEGER NOT NULL DEFAULT 0,
-    reason TEXT,
-    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -142,6 +133,46 @@ CREATE TABLE IF NOT EXISTS school_years (
     label TEXT UNIQUE NOT NULL,
     is_current INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS student_classes (
+    student_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    PRIMARY KEY (student_id, class_id),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS class_month_sessions (
+    class_id INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    session_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (class_id, month, year),
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS student_month_sessions (
+    student_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    session_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (student_id, class_id, month, year),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS student_attendance (
+    student_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    session_number INTEGER NOT NULL,
+    checked_in_at TEXT,
+    PRIMARY KEY (student_id, class_id, month, year, session_number),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+);
 """
 
 
@@ -149,6 +180,20 @@ def init_db():
     """Crée les tables si elles n'existent pas et insère un compte admin par défaut."""
     conn = get_connection()
     conn.executescript(SCHEMA)
+    conn.execute("DROP TABLE IF EXISTS absences")
+    conn.execute(
+        """INSERT OR IGNORE INTO student_classes (student_id, class_id)
+           SELECT id, class_id FROM students
+           WHERE class_id IS NOT NULL"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO student_month_sessions
+           (student_id, class_id, month, year, session_count)
+           SELECT sc.student_id, cms.class_id, cms.month, cms.year, cms.session_count
+           FROM class_month_sessions cms
+           JOIN student_classes sc ON sc.class_id = cms.class_id"""
+    )
+    conn.execute("DROP TABLE IF EXISTS class_month_sessions")
     conn.commit()
 
     cur = conn.execute("SELECT COUNT(*) AS c FROM users")

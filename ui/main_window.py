@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QStackedWidget, QFrame, QButtonGroup
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
+import os
 
 import styles
 from database import log_action, DB_PATH
@@ -24,7 +26,7 @@ from ui.users_widget import UsersWidget
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, user, school_name="École Nebras"):
+    def __init__(self, user, school_name="Alkaouther Academy"):
         super().__init__()
         self.user = user
         self.school_name = school_name
@@ -71,6 +73,15 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
+        logo.setFixedHeight(72)
+        logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "alkaouther.webp")
+        logo_pixmap = QPixmap(logo_path)
+        if not logo_pixmap.isNull():
+            logo.setPixmap(logo_pixmap.scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            layout.addWidget(logo)
 
         title = QLabel(self.school_name)
         title.setObjectName("sidebarTitle")

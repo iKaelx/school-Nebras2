@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap
+import os
 
 from auth import verify_login
 from database import log_action
@@ -14,7 +15,7 @@ import styles
 
 
 class LoginWindow(QDialog):
-    def __init__(self, school_name="École Nebras"):
+    def __init__(self, school_name="Alkaouther Academy"):
         super().__init__()
         self.school_name = school_name
         self.user = None
@@ -28,17 +29,13 @@ class LoginWindow(QDialog):
         layout.setContentsMargins(40, 30, 40, 30)
         layout.setSpacing(14)
 
-        # Logo (badge stylisé en attendant le logo réel de l'école)
-        logo = QFrame()
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
         logo.setFixedSize(96, 96)
-        logo.setStyleSheet(
-            f"background-color: {styles.NAVY}; border-radius: 48px; border: 3px solid {styles.GOLD};"
-        )
-        logo_layout = QVBoxLayout(logo)
-        logo_label = QLabel("N")
-        logo_label.setAlignment(Qt.AlignCenter)
-        logo_label.setStyleSheet(f"color: {styles.GOLD}; font-size: 44px; font-weight: bold; border: none;")
-        logo_layout.addWidget(logo_label)
+        logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "alkaouther.webp")
+        logo_pixmap = QPixmap(logo_path)
+        if not logo_pixmap.isNull():
+            logo.setPixmap(logo_pixmap.scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
         logo_row = QHBoxLayout()
         logo_row.addStretch()

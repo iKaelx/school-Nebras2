@@ -4,9 +4,10 @@ Boîte de dialogue d'ajout / modification d'une fiche élève.
 """
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QComboBox, QDateEdit, QDialogButtonBox,
-    QVBoxLayout, QLabel, QFileDialog, QHBoxLayout, QPushButton
+    QVBoxLayout, QLabel, QFileDialog, QHBoxLayout, QPushButton, QListWidget,
+    QListWidgetItem
 )
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, Qt
 
 from database import get_connection, get_current_school_year
 from utils import validate_phone, show_error
@@ -37,7 +38,8 @@ class StudentFormDialog(QDialog):
         self.sex = QComboBox()
         self.sex.addItems(["", "M", "F"])
 
-        self.class_combo = QComboBox()
+        self.classes_list = QListWidget()
+        self.classes_list.setSelectionMode(QListWidget.MultiSelection)
         self._load_classes()
 
         self.parent_name = QLineEdit()
@@ -64,7 +66,7 @@ class StudentFormDialog(QDialog):
         form.addRow("Nom *", self.last_name)
         form.addRow("Date de naissance", self.birth_date)
         form.addRow("Sexe", self.sex)
-        form.addRow("Classe", self.class_combo)
+        form.addRow("Classes", self.classes_list)
         form.addRow("Photo (optionnel)", photo_row)
         form.addRow(QLabel("<b>Parent / tuteur</b>"))
         form.addRow("Nom du parent", self.parent_name)
@@ -85,9 +87,10 @@ class StudentFormDialog(QDialog):
 
     def _load_classes(self):
         conn = get_connection()
-        self.class_combo.addItem("— Aucune —", None)
         for row in conn.execute("SELECT id, name FROM classes ORDER BY name"):
-            self.class_combo.addItem(row["name"], row["id"])
+            item = QListWidgetItem(row["name"])
+            item.setData(Qt.UserRole, row["id"])
+            self.classes_list.addItem(item)
 
     def _choose_photo(self):
         path, _ = QFileDialog.getOpenFileName(self, "Choisir une photo", "", "Images (*.png *.jpg *.jpeg)")
@@ -101,10 +104,17 @@ class StudentFormDialog(QDialog):
         if student["birth_date"]:
             self.birth_date.setDate(QDate.fromString(student["birth_date"], "yyyy-MM-dd"))
         self.sex.setCurrentText(student["sex"] or "")
-        if student["class_id"]:
-            idx = self.class_combo.findData(student["class_id"])
-            if idx >= 0:
-                self.class_combo.setCurrentIndex(idx)
+        assigned = {
+            r["class_id"] for r in get_connection().execute(
+                "SELECT class_id FROM student_classes WHERE student_id=?", (student["id"],)
+            )
+        }
+        if not assigned and student["class_id"]:
+            assigned = {student["class_id"]}
+        for i in range(self.classes_list.count()):
+            item = self.classes_list.item(i)
+            if item.data(Qt.UserRole) in assigned:
+                item.setSelected(True)
         self.parent_name.setText(student["parent_name"] or "")
         self.parent_phone.setText(student["parent_phone"] or "")
         self.parent_address.setText(student["parent_address"] or "")
@@ -123,13 +133,17 @@ class StudentFormDialog(QDialog):
             return
 
         conn = get_connection()
+        selected_classes = [
+            item.data(Qt.UserRole) for item in self.classes_list.selectedItems()
+        ]
+        primary_class_id = selected_classes[0] if selected_classes else None
         data = (
             self.first_name.text().strip(),
             self.last_name.text().strip(),
             self.birth_date.date().toString("yyyy-MM-dd"),
             self.sex.currentText(),
             self.photo_path,
-            self.class_combo.currentData(),
+            primary_class_id,
             self.parent_name.text().strip(),
             self.parent_phone.text().strip(),
             self.parent_address.text().strip(),
@@ -144,12 +158,19 @@ class StudentFormDialog(QDialog):
                    WHERE id=?""",
                 data + (self.student["id"],),
             )
+            student_id = self.student["id"]
         else:
-            conn.execute(
+            cursor = conn.execute(
                 """INSERT INTO students (first_name, last_name, birth_date, sex, photo_path, class_id,
                    parent_name, parent_phone, parent_address, registration_date, status, school_year)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 data + (get_current_school_year(),),
             )
+            student_id = cursor.lastrowid
+        conn.execute("DELETE FROM student_classes WHERE student_id=?", (student_id,))
+        conn.executemany(
+            "INSERT INTO student_classes (student_id, class_id) VALUES (?, ?)",
+            [(student_id, class_id) for class_id in selected_classes],
+        )
         conn.commit()
         self.accept()

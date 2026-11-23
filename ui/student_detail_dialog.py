@@ -1,7 +1,7 @@
 """
 ui/student_detail_dialog.py
 Fiche consultable d'un élève : informations, suivi des paiements (avec reçu),
-et suivi des absences.
+et suivi des paiements.
 """
 import uuid
 from datetime import datetime
@@ -9,7 +9,7 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget, QWidget, QTableWidget,
     QTableWidgetItem, QPushButton, QFormLayout, QComboBox, QSpinBox, QDoubleSpinBox,
-    QDateEdit, QLineEdit, QDialogButtonBox, QCheckBox, QHeaderView
+    QDateEdit, QDialogButtonBox, QHeaderView, QGridLayout, QCheckBox
 )
 from PySide6.QtCore import Qt, QDate
 
@@ -67,38 +67,8 @@ class PaymentFormDialog(QDialog):
         layout.addWidget(buttons)
 
 
-class AbsenceFormDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Ajouter une absence")
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-
-        self.date = QDateEdit()
-        self.date.setCalendarPopup(True)
-        self.date.setDisplayFormat("yyyy-MM-dd")
-        self.date.setDate(QDate.currentDate())
-
-        self.justified = QCheckBox("Absence justifiée")
-        self.reason = QLineEdit()
-        self.reason.setPlaceholderText("Motif (ex. maladie, rendez-vous médical...)")
-
-        form.addRow("Date", self.date)
-        form.addRow("", self.justified)
-        form.addRow("Motif", self.reason)
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Save).setText("Enregistrer")
-        buttons.button(QDialogButtonBox.Save).setProperty("variant", "primary")
-        buttons.button(QDialogButtonBox.Cancel).setText("Annuler")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-
 class StudentDetailDialog(QDialog):
-    def __init__(self, parent, user, student_row, school_name="École Nebras"):
+    def __init__(self, parent, user, student_row, school_name="Alkaouther Academy"):
         super().__init__(parent)
         self.user = user
         self.student = student_row
@@ -107,15 +77,24 @@ class StudentDetailDialog(QDialog):
         self.resize(680, 560)
         self._build_ui()
         self.refresh_payments()
-        self.refresh_absences()
+        self.refresh_attendance()
 
     # ------------------------------------------------------------- helpers
     def _class_name(self):
         conn = get_connection()
-        if self.student["class_id"]:
+        names = [
+            row["name"] for row in conn.execute(
+                """SELECT cl.name FROM classes cl
+                   JOIN student_classes sc ON sc.class_id=cl.id
+                   WHERE sc.student_id=? ORDER BY cl.name""",
+                (self.student["id"],),
+            )
+        ]
+        if not names and self.student["class_id"]:
             row = conn.execute("SELECT name FROM classes WHERE id=?", (self.student["class_id"],)).fetchone()
-            return row["name"] if row else "-"
-        return "-"
+            if row:
+                names = [row["name"]]
+        return ", ".join(names) if names else "-"
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -128,7 +107,7 @@ class StudentDetailDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._build_info_tab(), "Informations")
         tabs.addTab(self._build_payments_tab(), "Paiements")
-        tabs.addTab(self._build_absences_tab(), "Absences")
+        tabs.addTab(self._build_attendance_tab(), "Présences")
         layout.addWidget(tabs)
 
         close_btn = QPushButton("Fermer")
@@ -151,6 +130,183 @@ class StudentDetailDialog(QDialog):
         form.addRow("Date d'inscription", QLabel(s["registration_date"] or "-"))
         form.addRow("Année scolaire", QLabel(s["school_year"] or "-"))
         return w
+
+    # ------------------------------------------------------------- présences
+    def _build_attendance_tab(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+
+        controls = QHBoxLayout()
+        self.attendance_class = QComboBox()
+        conn = get_connection()
+        class_rows = conn.execute(
+            """SELECT cl.id, cl.name FROM classes cl
+               JOIN student_classes sc ON sc.class_id=cl.id
+               WHERE sc.student_id=? ORDER BY cl.name""",
+            (self.student["id"],),
+        ).fetchall()
+        if not class_rows and self.student["class_id"]:
+            class_rows = conn.execute(
+                "SELECT id, name FROM classes WHERE id=?", (self.student["class_id"],)
+            ).fetchall()
+        for row in class_rows:
+            self.attendance_class.addItem(row["name"], row["id"])
+
+        self.attendance_month = QComboBox()
+        for i, name in enumerate(MOIS_FR, start=1):
+            self.attendance_month.addItem(name, i)
+        self.attendance_month.setCurrentIndex(datetime.now().month - 1)
+
+        self.attendance_year = QSpinBox()
+        self.attendance_year.setRange(2000, 2100)
+        self.attendance_year.setValue(datetime.now().year)
+
+        self.session_count = QSpinBox()
+        self.session_count.setRange(0, 31)
+        self.session_count.setSuffix(" séances")
+
+        save_sessions = QPushButton("Enregistrer les séances")
+        save_sessions.setProperty("variant", "primary")
+        save_sessions.clicked.connect(self._save_session_count)
+
+        controls.addWidget(QLabel("Classe"))
+        controls.addWidget(self.attendance_class)
+        controls.addWidget(QLabel("Mois"))
+        controls.addWidget(self.attendance_month)
+        controls.addWidget(QLabel("Année"))
+        controls.addWidget(self.attendance_year)
+        controls.addWidget(QLabel("Séances pour cet élève"))
+        controls.addWidget(self.session_count)
+        controls.addWidget(save_sessions)
+        layout.addLayout(controls)
+
+        self.attendance_summary = QLabel("")
+        layout.addWidget(self.attendance_summary)
+
+        self.attendance_grid = QGridLayout()
+        layout.addLayout(self.attendance_grid)
+        layout.addStretch()
+
+        self.attendance_class.currentIndexChanged.connect(self.refresh_attendance)
+        self.attendance_month.currentIndexChanged.connect(self.refresh_attendance)
+        self.attendance_year.valueChanged.connect(self.refresh_attendance)
+
+        return w
+
+    def refresh_attendance(self):
+        if not hasattr(self, "attendance_grid"):
+            return
+        while self.attendance_grid.count():
+            item = self.attendance_grid.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        if self.attendance_class.count() == 0:
+            self.attendance_summary.setText("Cet élève n'est inscrit à aucune classe.")
+            self.session_count.setValue(0)
+            return
+
+        conn = get_connection()
+        class_id = self.attendance_class.currentData()
+        month = self.attendance_month.currentData()
+        year = self.attendance_year.value()
+        row = conn.execute(
+            """SELECT session_count FROM student_month_sessions
+               WHERE student_id=? AND class_id=? AND month=? AND year=?""",
+            (self.student["id"], class_id, month, year),
+        ).fetchone()
+        count = row["session_count"] if row else 0
+        self.session_count.blockSignals(True)
+        self.session_count.setValue(count)
+        self.session_count.blockSignals(False)
+
+        checked = {
+            r["session_number"] for r in conn.execute(
+                """SELECT session_number FROM student_attendance
+                   WHERE student_id=? AND class_id=? AND month=? AND year=?""",
+                (self.student["id"], class_id, month, year),
+            )
+        }
+        checked_count = 0
+        for number in range(1, count + 1):
+            checkbox = QCheckBox(f"Séance {number}")
+            checkbox.setChecked(number in checked)
+            if checkbox.isChecked():
+                checked_count += 1
+            checkbox.toggled.connect(
+                lambda checked, n=number: self._set_attendance(n, checked)
+            )
+            self.attendance_grid.addWidget(checkbox, (number - 1) // 4, (number - 1) % 4)
+
+        self.attendance_summary.setText(
+            f"<b>Présences :</b> {checked_count} sur {count} séance(s)"
+        )
+
+    def _save_session_count(self):
+        if self.attendance_class.count() == 0:
+            show_error(self, "Veuillez inscrire l'élève à une classe.")
+            return
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO student_month_sessions
+               (student_id, class_id, month, year, session_count)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(student_id, class_id, month, year)
+               DO UPDATE SET session_count=excluded.session_count""",
+            (
+                self.student["id"],
+                self.attendance_class.currentData(),
+                self.attendance_month.currentData(),
+                self.attendance_year.value(),
+                self.session_count.value(),
+            ),
+        )
+        conn.execute(
+            """DELETE FROM student_attendance
+               WHERE student_id=? AND class_id=? AND month=? AND year=?
+                 AND session_number>?""",
+            (
+                self.student["id"],
+                self.attendance_class.currentData(),
+                self.attendance_month.currentData(),
+                self.attendance_year.value(),
+                self.session_count.value(),
+            ),
+        )
+        conn.commit()
+        log_action(
+            self.user,
+            "Séances mensuelles définies",
+            f"{self.attendance_class.currentText()} — {self.attendance_month.currentText()} {self.attendance_year.value()}",
+        )
+        self.refresh_attendance()
+
+    def _set_attendance(self, session_number, checked):
+        if self.attendance_class.count() == 0:
+            return
+        conn = get_connection()
+        class_id = self.attendance_class.currentData()
+        month = self.attendance_month.currentData()
+        year = self.attendance_year.value()
+        if checked:
+            conn.execute(
+                """INSERT OR IGNORE INTO student_attendance
+                   (student_id, class_id, month, year, session_number, checked_in_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    self.student["id"], class_id, month, year, session_number,
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+        else:
+            conn.execute(
+                """DELETE FROM student_attendance
+                   WHERE student_id=? AND class_id=? AND month=? AND year=? AND session_number=?""",
+                (self.student["id"], class_id, month, year, session_number),
+            )
+        conn.commit()
+        self.refresh_attendance()
 
     # ------------------------------------------------------------ paiements
     def _build_payments_tab(self):
@@ -280,68 +436,3 @@ class StudentDetailDialog(QDialog):
         html = build_receipt_html(self.school_name, student, payment)
         export_html_to_pdf(self, html, default_name=f"recu_{payment['receipt_number']}.pdf")
 
-    # ------------------------------------------------------------- absences
-    def _build_absences_tab(self):
-        w = QWidget()
-        layout = QVBoxLayout(w)
-
-        btn_row = QHBoxLayout()
-        add_btn = QPushButton("+ Ajouter une absence")
-        add_btn.setProperty("variant", "primary")
-        add_btn.clicked.connect(self._add_absence)
-        del_btn = QPushButton("Supprimer")
-        del_btn.setProperty("variant", "danger")
-        del_btn.clicked.connect(self._delete_absence)
-        btn_row.addWidget(add_btn)
-        btn_row.addStretch()
-        btn_row.addWidget(del_btn)
-        layout.addLayout(btn_row)
-
-        self.absences_table = QTableWidget(0, 3)
-        self.absences_table.setHorizontalHeaderLabels(["Date", "Justifiée", "Motif"])
-        self.absences_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.absences_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.absences_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        layout.addWidget(self.absences_table)
-
-        return w
-
-    def refresh_absences(self):
-        conn = get_connection()
-        rows = conn.execute(
-            "SELECT * FROM absences WHERE student_id=? ORDER BY date DESC", (self.student["id"],)
-        ).fetchall()
-        self.absences_table.setRowCount(0)
-        for r in rows:
-            row_idx = self.absences_table.rowCount()
-            self.absences_table.insertRow(row_idx)
-            self.absences_table.setItem(row_idx, 0, QTableWidgetItem(r["date"]))
-            self.absences_table.setItem(row_idx, 1, QTableWidgetItem("Oui" if r["justified"] else "Non"))
-            self.absences_table.setItem(row_idx, 2, QTableWidgetItem(r["reason"] or "-"))
-            self.absences_table.item(row_idx, 0).setData(Qt.UserRole, r["id"])
-
-    def _add_absence(self):
-        dlg = AbsenceFormDialog(self)
-        if dlg.exec():
-            conn = get_connection()
-            conn.execute(
-                "INSERT INTO absences (student_id, date, justified, reason) VALUES (?, ?, ?, ?)",
-                (self.student["id"], dlg.date.date().toString("yyyy-MM-dd"),
-                 1 if dlg.justified.isChecked() else 0, dlg.reason.text().strip()),
-            )
-            conn.commit()
-            log_action(self.user, "Absence ajoutée", f"Élève #{self.student['id']} — {dlg.date.date().toString('yyyy-MM-dd')}")
-            self.refresh_absences()
-
-    def _delete_absence(self):
-        row = self.absences_table.currentRow()
-        if row < 0:
-            show_error(self, "Veuillez sélectionner une absence à supprimer.")
-            return
-        aid = self.absences_table.item(row, 0).data(Qt.UserRole)
-        if confirm_delete(self, "cette absence"):
-            conn = get_connection()
-            conn.execute("DELETE FROM absences WHERE id=?", (aid,))
-            conn.commit()
-            log_action(self.user, "Absence supprimée", f"Absence #{aid}")
-            self.refresh_absences()

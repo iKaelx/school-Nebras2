@@ -90,9 +90,6 @@ class DashboardWidget(QWidget):
             (now.strftime("%Y-%m-%d %H:%M"),),
         ).fetchone()["c"]
 
-        total_absences = conn.execute("SELECT COUNT(*) c FROM absences").fetchone()["c"]
-        unjustified = conn.execute("SELECT COUNT(*) c FROM absences WHERE justified=0").fetchone()["c"]
-
         current_year = now.year
         revenue = conn.execute(
             "SELECT COALESCE(SUM(amount),0) s FROM payments WHERE year=?", (current_year,)
@@ -116,7 +113,6 @@ class DashboardWidget(QWidget):
             (f"{active_students} actifs / {inactive_students} inactifs", f"Élèves ({total_students} au total)", "blue"),
             (total_teachers, "Enseignants", "blue"),
             (upcoming_events, "Événements à venir", "gold"),
-            (f"{total_absences} ({unjustified} non justifiées)", "Absences enregistrées", "red"),
         ]
         for i, (value, label, accent) in enumerate(cards):
             self.grid.addWidget(_card(label, value, accent), 0, i)
