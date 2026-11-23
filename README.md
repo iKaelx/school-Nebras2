@@ -36,7 +36,7 @@ Le compte admin peut ensuite créer des comptes **secrétaire** depuis le module
 
 | Module | Secrétaire | Admin |
 |---|---|---|
-| Élèves (CRUD, paiements, absences, reçus) | ✅ | ✅ |
+| Élèves (CRUD, inscriptions à plusieurs classes, présences, paiements, reçus) | ✅ | ✅ |
 | Enseignants (CRUD, fiche) | ✅ (salaire masqué) | ✅ |
 | Classes / Niveaux | ✅ | ✅ |
 | Calendrier / Événements | ✅ | ✅ |
@@ -58,7 +58,7 @@ Le compte admin peut ensuite créer des comptes **secrétaire** depuis le module
 ## 5. Base de données
 
 Le fichier `ecole.db` (SQLite) est créé automatiquement dans le dossier de l'application au premier
-lancement. Il contient toutes les données : élèves, enseignants, classes, paiements, absences,
+lancement. Il contient toutes les données : élèves, enseignants, classes, paiements,
 événements, contacts, dépenses, utilisateurs et historique.
 
 Pour changer d'année scolaire, la table `school_years` peut être étendue depuis le code

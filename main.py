@@ -12,7 +12,7 @@ import styles
 from ui.login_window import LoginWindow
 from ui.main_window import MainWindow
 
-SCHOOL_NAME = "École Nebras"  # à personnaliser selon le nom réel de l'établissement
+SCHOOL_NAME = "Alkaouther Academy"
 
 
 def main():

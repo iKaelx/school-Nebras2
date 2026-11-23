@@ -1,7 +1,7 @@
 """
 ui/students_widget.py
 Module « Élèves » : liste, recherche/filtres, ajout/modification/suppression,
-accès à la fiche détaillée (paiements, absences).
+accès à la fiche détaillée (paiements).
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QComboBox, QPushButton,
@@ -110,7 +110,10 @@ class StudentsWidget(QWidget):
             params += [f"%{search}%", f"%{search}%"]
         class_id = self.class_filter.currentData()
         if class_id:
-            query += " AND s.class_id = ?"
+            query += """ AND EXISTS (
+                SELECT 1 FROM student_classes sc
+                WHERE sc.student_id=s.id AND sc.class_id=?
+            )"""
             params.append(class_id)
         status = self.status_filter.currentData()
         if status:
@@ -125,7 +128,17 @@ class StudentsWidget(QWidget):
             self.table.insertRow(idx)
             self.table.setItem(idx, 0, QTableWidgetItem(r["last_name"]))
             self.table.setItem(idx, 1, QTableWidgetItem(r["first_name"]))
-            self.table.setItem(idx, 2, QTableWidgetItem(r["class_name"] or "-"))
+            class_names = [
+                row["name"] for row in conn.execute(
+                    """SELECT cl.name FROM classes cl
+                       JOIN student_classes sc ON sc.class_id=cl.id
+                       WHERE sc.student_id=? ORDER BY cl.name""",
+                    (r["id"],),
+                )
+            ]
+            if not class_names and r["class_name"]:
+                class_names = [r["class_name"]]
+            self.table.setItem(idx, 2, QTableWidgetItem(", ".join(class_names) or "-"))
             self.table.setItem(idx, 3, QTableWidgetItem(STATUS_LABELS.get(r["status"], r["status"])))
             self.table.setItem(idx, 4, QTableWidgetItem(r["registration_date"] or "-"))
             contact = f"{r['parent_name'] or ''} ({r['parent_phone'] or '-'})"

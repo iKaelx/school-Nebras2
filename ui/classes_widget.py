@@ -118,7 +118,10 @@ class ClassesWidget(QWidget):
         self.table.setRowCount(0)
         for r in rows:
             count = conn.execute(
-                "SELECT COUNT(*) AS c FROM students WHERE class_id=? AND status='actif'", (r["id"],)
+                """SELECT COUNT(*) AS c FROM student_classes sc
+                   JOIN students s ON s.id=sc.student_id
+                   WHERE sc.class_id=? AND s.status='actif'""",
+                (r["id"],),
             ).fetchone()["c"]
             idx = self.table.rowCount()
             self.table.insertRow(idx)
